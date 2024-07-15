@@ -1,0 +1,176 @@
+import streamlit as st
+import pandas as pd
+import plotly.express as px
+import seaborn as sns
+import matplotlib.pyplot as plt
+from sentence_transformers import SentenceTransformer, util
+import torch
+import re
+
+
+# Load your dataset with smartphone reviews
+def load_reviews_data():
+    return pd.read_csv(
+        '/Users/ptsaravanan/sentiment_analysis_results_with_recommendations.csv')  # Replace with your dataset path
+
+
+# Function to recommend a phone based on the combined score and key features
+def recommend_phone(reviews, keywords):
+    phone_scores = {}
+
+    # Define weights for the overall score calculation
+    W_p = 1.0  # Weight for Polarity Score
+    W_s = 0.5  # Weight for Subjectivity Score
+    W_n = 0.5  # Weight for Negative Score
+    W_g = 0.1  # Weight for Gunning Fog Index
+
+    for index, row in reviews.iterrows():
+        if any(keyword.lower() in row['Review'].lower() for keyword in keywords):
+            polarity_score = row['Polarity_Score']
+            subjectivity_score = row['Subjectivity_Score']
+            negative_score = row['Negative_Score']
+            gunning_fog_index = row['Gunning_Fog_Index']
+
+            # Calculate the overall score
+            overall_score = (W_p * polarity_score) - (W_s * subjectivity_score) - (W_n * negative_score) - (
+                        W_g * gunning_fog_index)
+
+            if row['Product Name'] not in phone_scores:
+                phone_scores[row['Product Name']] = []
+            phone_scores[row['Product Name']].append(overall_score)
+
+    # Average the scores for each phone
+    average_scores = {phone: sum(scores) / len(scores) for phone, scores in phone_scores.items()}
+    recommended_phone = max(average_scores, key=average_scores.get)
+    return recommended_phone, average_scores
+
+
+def main():
+    st.sidebar.title("Navigation")
+    page = st.sidebar.radio("Go to", ["Homepage", "Dashboard", "Question Section"])
+
+    if page == "Homepage":
+        st.title("Welcome to the Smartphone Recommendation App")
+        st.image("/Users/ptsaravanan/Downloads/eyecatch-15.jpeg", use_column_width=True)
+        st.write("""
+            ## Web Scraping and Get Product Recommendation with Sentiment Analysis from Flipkart
+            ### Skills Takeaway:
+            - **Web Scraping**: Learn how to collect data from Flipkart using Selenium.
+            - **Data Parsing and Structuring**: Process and structure data for analysis.
+            - **Sentiment Analysis**: Analyze customer reviews to determine sentiment.
+            - **Data Visualization**: Create visual representations of data using Matplotlib, Seaborn, and Plotly.
+            - **Python Programming**: Enhance your Python skills through practical implementation.
+            - **LangChain**: Use LangChain with Hugging Face for generating product recommendations.
+
+            ### Domain:
+            - E-commerce, Data Science, Machine Learning, LLM, NLP
+
+            ### Problem Statement:
+            The goal of this project is to develop an automated system for collecting and analyzing product reviews from Flipkart. 
+            By leveraging web scraping techniques and sentiment analysis, the project aims to generate data-driven product recommendations.
+
+            ### Business Use Cases:
+            - **E-commerce Platforms**: Enhance product recommendation engines by incorporating sentiment analysis of customer reviews.
+            - **Market Research Firms**: Analyze consumer sentiment towards various products to inform business strategies.
+            - **Retail Companies**: Monitor customer feedback to improve product offerings and customer satisfaction.
+            - **Business Intelligence Tools**: Integrate with dashboards to provide real-time insights on product performance based on customer reviews.
+        """)
+
+        st.subheader("Calculation Formulas Used:")
+        st.markdown("""
+            - **Polarity Score:** `polarity_score = row['Polarity_Score']`
+            - **Subjectivity Score:** `subjectivity_score = row['Subjectivity_Score']`
+            - **Negative Score:** `negative_score = row['Negative_Score']`
+            - **Gunning Fog Index:** `gunning_fog_index = row['Gunning_Fog_Index']`
+            - **Overall Score:** `overall_score = (W_p * polarity_score) - (W_s * subjectivity_score) - (W_n * negative_score) - (W_g * gunning_fog_index)`
+            - **Average Score:** `average_scores = {phone: sum(scores) / len(scores) for phone, scores in phone_scores.items()}`
+        """)
+
+    elif page == "Dashboard":
+        st.title("Dashboard")
+        st.write("## Visualizations and Summaries of the Data")
+
+        # Load data
+        reviews_data = load_reviews_data()
+
+        st.write("### Most Recommended Smartphone by Users")
+        keywords = ["recommend", "suggest", "best", "favorite", "top", "popular",
+                    "recommended", "highly recommend", "best choice",
+                    "preferred", "most liked", "most loved", "user choice",
+                    "user favorite", "user rating", "user review",
+                    "user suggestion", "best rated", "top pick", "best reviewed"]
+
+        escaped_keywords = [re.escape(keyword) for keyword in keywords]
+        filtered_reviews = reviews_data[reviews_data['Review'].str.contains('|'.join(escaped_keywords), case=False)]
+        if not filtered_reviews.empty:
+            recommended_phone, average_scores = recommend_phone(filtered_reviews, keywords)
+            avg_scores_df = pd.DataFrame(list(average_scores.items()),
+                                         columns=['Product Name', 'Average Sentiment Score'])
+
+            # Display the recommended phone
+            st.markdown(
+                f"<div style='background-color: #FF4500; padding: 15px; border-radius: 10px; "
+                f"font-size: 24px; color: white; text-align: center;'>"
+                f"<strong>Based on the analysis, we recommend:</strong> {recommended_phone}</div>",
+                unsafe_allow_html=True
+            )
+
+            # Creative visualization using a pie chart
+            fig = px.pie(avg_scores_df, names='Product Name', values='Average Sentiment Score')
+            st.plotly_chart(fig)
+        else:
+            st.write("No reviews found with the specified keywords.")
+
+    elif page == "Question Section":
+        st.title("Question Section")
+
+        # Load data
+        reviews_data = load_reviews_data()
+
+        user_question = st.text_input("Type your question about smartphones:")
+
+        # Solution 1: Load the model from a local directory
+        model_path = "/Users/ptsaravanan/Desktop/untitled folder/models/distilbert-base-uncased-finetuned-sst-2"  # Replace with your local model directory path
+        model = SentenceTransformer(model_path)
+
+        # Encode user question using sentence-transformers model
+        question_embedding = model.encode(user_question, convert_to_tensor=True)
+
+        # Extract keywords by finding similar words in the reviews
+        reviews_corpus = reviews_data['Review'].tolist()
+        reviews_embeddings = model.encode(reviews_corpus, convert_to_tensor=True)
+
+        cos_scores = util.pytorch_cos_sim(question_embedding, reviews_embeddings)[0]
+        top_results = torch.topk(cos_scores, k=50)
+
+        keywords = []
+        for idx in top_results.indices.tolist():
+            keywords.extend(reviews_data.iloc[idx]['Review'].split())
+
+        keywords = list(set(keywords))  # Remove duplicates
+
+        st.header(user_question)
+
+        # Filter reviews based on keywords
+        escaped_keywords = [re.escape(keyword) for keyword in keywords]
+        filtered_reviews = reviews_data[reviews_data['Review'].str.contains('|'.join(escaped_keywords), case=False)]
+        recommended_phone, average_scores = recommend_phone(filtered_reviews, keywords)
+
+        # Highlight the recommended phone with larger size and distinct color
+        st.markdown(
+            f"<div style='background-color: #FF4500; padding: 15px; border-radius: 10px; font-size: 24px; color: white; text-align: center;'>"
+            f"<strong>Based on the analysis, we recommend:</strong> {recommended_phone}</div>",
+            unsafe_allow_html=True
+        )
+
+        # Visualization
+        st.write("### Sentiment Analysis for Recommended Phones")
+        avg_scores_df = pd.DataFrame(list(average_scores.items()), columns=['Product Name', 'Average Sentiment Score'])
+        fig, ax = plt.subplots(figsize=(10, 6))
+        sns.barplot(x='Average Sentiment Score', y='Product Name', data=avg_scores_df, palette='viridis', ax=ax)
+        ax.set_title('Average Sentiment Score for Phones')
+        st.pyplot(fig)
+
+
+if __name__ == '__main__':
+    main()
