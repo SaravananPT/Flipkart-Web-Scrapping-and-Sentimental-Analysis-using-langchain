@@ -1,0 +1,19 @@
+import pandas as pd
+import re
+
+# List your CSV files
+csv_files = ['/Users/ptsaravanan/Apple_iPhone_12_(Blue,_64_GB)_reviews.csv', 
+             '/Users/ptsaravanan/PycharmProjects/flipkart/SAMSUNG_Galaxy_S22_5G_(Green,_128_GB)_reviews.csv', 
+             '/Users/ptsaravanan/PycharmProjects/flipkart/OnePlus_11R_5G_(Galactic_Silver,_256_GB)_reviews.csv', 
+             '/Users/ptsaravanan/PycharmProjects/flipkart/Motorola_Edge_50_Pro_5G_with_125W_Charger_(Moonlight_Pearl,_256_GB)_reviews.csv', 
+             '/Users/ptsaravanan/PycharmProjects/flipkart/OPPO_Reno11_Pro_5G_(Rock_Grey,_256_GB)_reviews.csv']
+
+# Combine CSV files into one DataFrame
+dfs = [pd.read_csv(file) for file in csv_files]
+combined_df = pd.concat(dfs, ignore_index=True)
+
+# Clean the data
+combined_df['Review'] = combined_df['Review'].apply(lambda x: re.sub(r'[^\x00-\x7F]+', ' ', x))
+
+# Save the cleaned combined DataFrame
+combined_df.to_csv('combined_cleaned_reviews.csv', index=False)
